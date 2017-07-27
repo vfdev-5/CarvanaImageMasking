@@ -51,6 +51,7 @@ if len(test_ids) == 0:
 
 
 UNIQUE_CARS = sorted(METADATA_CSV['id'].unique())
+UNIQUE_TRAIN_CARS = sorted([_id for _id in UNIQUE_CARS if _id + '_01' in train_ids])
 
 
 def to_set(id_type_list):
