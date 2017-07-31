@@ -30,20 +30,14 @@ from data_utils import GENERATED_DATA, OUTPUT_PATH
 # from postproc import pred_threshold
 
 
-def get_train_imgaug_seq(seed):
+def get_imgaug_seq(seed):
     determinist = {
-        "deterministic": True,
+        "deterministic": False,
         "random_state": seed
     }
     train_seq = iaa.Sequential([
-        iaa.Sometimes(0.45, iaa.Sharpen(alpha=0.9, lightness=(0.5, 1.15), **determinist), **determinist),
         iaa.Sometimes(0.45, iaa.ContrastNormalization(alpha=(0.75, 1.15), **determinist), **determinist),
-        iaa.Affine(translate_px=(-25, 25),
-                   scale=(0.85, 1.15),
-                   rotate=(-65, 65),
-                   mode='reflect',
-                   **determinist),
-        # iaa.Add(value=(-35, 35), per_channel=True),  # Probably, can change nature of label
+        iaa.Add(value=(-35, 35), per_channel=True),
     ],
         random_order=True,
         **determinist
@@ -53,24 +47,6 @@ def get_train_imgaug_seq(seed):
 
 def get_id_imgaug_seq():
     return iaa.Sequential()
-
-
-def get_val_imgaug_seq(seed):
-    determinist = {
-        "deterministic": True,
-        "random_state": seed
-    }
-    val_seq = iaa.Sequential([
-        iaa.Affine(translate_px=(-25, 25),
-                   scale=(0.85, 1.15),
-                   rotate=(-45, 45),
-                   mode='reflect',
-                   **determinist),
-    ],
-        random_order=True,
-        **determinist
-    )
-    return val_seq
 
 
 def get_gen_flow(id_type_list, **params):
@@ -105,14 +81,8 @@ def get_gen_flow(id_type_list, **params):
         raise Exception("Failed to find backend data format")
 
     def _random_imgaug(x, y):
-        print("x.shape={}, y.shape={}".format(x.shape, y.shape))
-        ret = imgaug_seq.augment_images([255.0 * x, 255 * y, ])
-        print(len(ret),
-              ret[0].shape, ret[0].dtype,
-              ret[0].min(), ret[0].max(),
-              ret[1].shape, ret[1].dtype,
-              ret[1].min(), ret[1].max())
-        return ret
+        x = imgaug_seq.augment_image(255.0 * x) / 255.0
+        return x, y
 
     pipeline = ('random_transform', )
     if imgaug_seq is not None:
@@ -122,9 +92,13 @@ def get_gen_flow(id_type_list, **params):
     gen = ImageMaskGenerator(pipeline=pipeline,
                              featurewise_center=normalize_data,
                              featurewise_std_normalization=normalize_data,
+                             rotation_range=45,
+                             width_shift_range=0.15,
+                             height_shift_range=0.15,
+                             zoom_range=[0.85, 1.05],
                              horizontal_flip=True,
                              vertical_flip=True,
-                             fill_mode='reflect')
+                             fill_mode='nearest')
 
     if normalize_data:
         if normalization == '':
@@ -291,11 +265,11 @@ def segmentation_train(model,
 
     if 'train_seq' in params:
         assert callable(params['train_seq']), "params['train_seq'] should be callable"
-    train_seq = get_train_imgaug_seq(seed) if 'train_seq' not in params else params['train_seq'](seed)
+    train_seq = get_imgaug_seq(seed) if 'train_seq' not in params else params['train_seq'](seed)
 
     if 'val_seq' in params:
         assert callable(params['val_seq']), "params['val_seq'] should be callable"
-    val_seq = get_val_imgaug_seq(seed) if 'val_seq' not in params else params['val_seq'](seed)
+    val_seq = get_imgaug_seq(seed) if 'val_seq' not in params else params['val_seq'](seed)
 
     try:
         train_gen, train_flow = get_gen_flow(id_type_list=train_id_type_list,

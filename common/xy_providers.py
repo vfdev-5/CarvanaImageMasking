@@ -259,6 +259,17 @@ def image_mask_provider(image_id_type_list,
     if seed is not None:
         np.random.seed(seed)
 
+    def _resize(_img, _image_size, _channels_first, _interpolation):
+        if _channels_first:
+            if _img.shape[1:] != _image_size[::-1]:
+                _img = _img.transpose([1, 2, 0])
+                _img = cv2.resize(_img, dsize=_image_size[::-1], interpolation=_interpolation)
+                _img = _img.transpose([2, 0, 1])
+        else:
+            if _img.shape[:2] != _image_size[::-1]:
+                _img = cv2.resize(_img, dsize=_image_size[::-1], interpolation=_interpolation)
+        return _img
+
     counter = 0
     image_id_type_list = list(image_id_type_list)
     while True:
@@ -273,14 +284,8 @@ def image_mask_provider(image_id_type_list,
                     print("-- Load from RAM")
                 img, mask = cache.get(key)
 
-                if channels_first:
-                    if img.shape[1:] != image_size[::-1]:
-                        img = img.transpose([1, 2, 0])
-                        img = cv2.resize(img, dsize=image_size[::-1])
-                        img = img.transpose([2, 0, 1])
-                else:
-                    if img.shape[:2] != image_size[::-1]:
-                        img = cv2.resize(img, dsize=image_size[::-1])
+                img = _resize(img, image_size, False, cv2.INTER_CUBIC)
+                mask = _resize(mask, image_size, False, cv2.INTER_LINEAR)
 
             else:
                 if verbose > 0:
@@ -288,16 +293,14 @@ def image_mask_provider(image_id_type_list,
 
                 img = get_image_data(image_id, image_type)
 
-                if img.shape[:2] != image_size:
-                    img = cv2.resize(img, dsize=image_size)
+                img = _resize(img, image_size, False, cv2.INTER_CUBIC)
                 if channels_first:
                     img = img.transpose([2, 0, 1])
                 img = img.astype(np.float32) / 255.0
 
                 if with_mask:
                     mask = get_image_data(image_id, "Train_mask")
-                    if mask.shape[:2] != image_size[::-1]:
-                        mask = cv2.resize(mask, dsize=image_size[::-1], interpolation=cv2.INTER_LINEAR)
+                    mask = _resize(mask, image_size, False, cv2.INTER_LINEAR)
                     # Mask should be binary
                     if mask.max() > 1:
                         mask = (mask > 1).astype(np.unit8)
