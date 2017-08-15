@@ -1,7 +1,6 @@
 
 import os
 from glob import glob
-import numpy as np
 import pandas as pd
 
 project_common_path = os.path.dirname(__file__)

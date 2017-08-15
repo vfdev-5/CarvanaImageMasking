@@ -1,156 +1,15 @@
 
+from __future__ import absolute_import
+
 import os
-import sys
 from datetime import datetime
 
 import numpy as np
-# import pandas as pd
+from sklearn.model_selection import KFold
 
 from keras.callbacks import ModelCheckpoint, CSVLogger, LearningRateScheduler, ReduceLROnPlateau, Callback
-import keras.backend as K
-from keras import __version__ as keras_version
 
-# Local repos:
-local_repos_path = os.path.abspath(os.path.dirname(__file__))
-
-keras_contrib_path = os.path.join(local_repos_path, "KerasContrib", "keras_contrib")
-if keras_contrib_path not in sys.path:
-    sys.path.append(keras_contrib_path)
-
-imgaug_contrib_path = os.path.join(local_repos_path, "imgaug", "imgaug")
-if imgaug_contrib_path not in sys.path:
-    sys.path.append(imgaug_contrib_path)
-
-from preprocessing.image.generators import ImageMaskGenerator
-from imgaug.imgaug import augmenters as iaa
-
-from data_utils import GENERATED_DATA, OUTPUT_PATH
-# from metrics import score
-# from sklearn.metrics import mean_absolute_error
-# from postproc import pred_threshold
-
-
-def get_imgaug_seq(seed):
-    determinist = {
-        "deterministic": False,
-        "random_state": seed
-    }
-    train_seq = iaa.Sequential([
-        iaa.Sometimes(0.45, iaa.ContrastNormalization(alpha=(0.75, 1.15), **determinist), **determinist),
-        iaa.Add(value=(-35, 35), per_channel=True),
-    ],
-        random_order=True,
-        **determinist
-    )
-    return train_seq
-
-
-def get_id_imgaug_seq():
-    return iaa.Sequential()
-
-
-def get_gen_flow(id_type_list, **params):
-
-    seed = params.get('seed')
-    normalize_data = params.get('normalize_data')
-    normalization = params.get('normalization')
-    xy_provider = params.get('xy_provider')
-    save_prefix = params.get('save_prefix')
-    imgaug_seq = params.get('imgaug_seq')
-    batch_size = params.get('batch_size')
-    verbose = params.get('verbose')
-
-    assert seed is not None, "seed is needed"
-    assert normalize_data is not None, "normalize_data is needed"
-    assert normalization is not None, "normalization is needed"
-    assert batch_size is not None, "batch_size is needed"
-    if normalize_data and (normalization == '' or normalization == 'from_save_prefix'):
-        assert save_prefix is not None, "save_prefix is needed"
-    assert 'image_size' in params, "image_size is needed"
-
-    if verbose is None:
-        verbose = 0
-
-    assert xy_provider is not None and callable(xy_provider), "xy_provider is needed"
-
-    if hasattr(K, 'image_data_format'):
-        channels_first = K.image_data_format() == 'channels_first'
-    elif hasattr(K, 'image_dim_ordering'):
-        channels_first = K.image_dim_ordering() == 'th'
-    else:
-        raise Exception("Failed to find backend data format")
-
-    def _random_imgaug(x, y):
-        x = imgaug_seq.augment_image(255.0 * x) / 255.0
-        return x, y
-
-    pipeline = ('random_transform', )
-    if imgaug_seq is not None:
-        pipeline += (_random_imgaug, )
-    pipeline += ('standardize', )
-
-    gen = ImageMaskGenerator(pipeline=pipeline,
-                             featurewise_center=normalize_data,
-                             featurewise_std_normalization=normalize_data,
-                             rotation_range=45,
-                             width_shift_range=0.15,
-                             height_shift_range=0.15,
-                             zoom_range=[0.85, 1.05],
-                             horizontal_flip=True,
-                             vertical_flip=True,
-                             fill_mode='nearest')
-
-    if normalize_data:
-        if normalization == '':
-            print("\n-- Fit stats of train dataset")
-            gen.fit(xy_provider(id_type_list,
-                                test_mode=True,
-                                channels_first=channels_first, **params),
-                    len(id_type_list),
-                    augment=True,
-                    seed=seed,
-                    save_to_dir=GENERATED_DATA,
-                    save_prefix=save_prefix,
-                    batch_size=4,
-                    verbose=verbose)
-        elif normalization == 'inception' or normalization == 'xception':
-            # Preprocessing of Xception: keras/applications/xception.py
-            if verbose > 0:
-                print("Image normalization: ", normalization)
-            gen.mean = 0.5
-            gen.std = 0.5
-        elif normalization == 'resnet' or normalization == 'vgg':
-            if verbose > 0:
-                print("Image normalization: ", normalization)
-            gen.std = 1.0 / 255.0  # Rescale to [0.0, 255.0]
-            m = np.array([123.68, 116.779, 103.939]) / 255.0  # RGB
-            if channels_first:
-                m = m[:, None, None]
-            else:
-                m = m[None, None, :]
-            gen.mean = m
-        elif normalization == 'from_save_prefix':
-            assert len(save_prefix) > 0, "WTF"
-            # Load mean, std, principal_components if file exists
-            filename = os.path.join(GENERATED_DATA, save_prefix + "_stats.npz")
-            assert os.path.exists(filename), "WTF"
-            if verbose > 0:
-                print("Load existing file: %s" % filename)
-            npzfile = np.load(filename)
-            gen.mean = npzfile['mean']
-            gen.std = npzfile['std']
-
-    # Ensure that all batches have the same size in training phase
-    ll = len(id_type_list) if 'test_mode' in params and params['test_mode'] \
-        else (len(id_type_list) // batch_size) * batch_size
-    flow = gen.flow(xy_provider(id_type_list,
-                                channels_first=channels_first,
-                                **params),
-
-                    ll,
-                    seed=seed,
-                    batch_size=batch_size)
-    return gen, flow
+from .data_utils import GENERATED_DATA, OUTPUT_PATH, to_set
 
 
 def exp_decay(epoch, lr=1e-3, a=0.925, init_epoch=0):
@@ -183,6 +42,53 @@ class EpochValidationCallback(Callback):
             return
         # f2, mae = classification_validate(self.model, self.val_id_type_list, **self.ev_params)
         # print("\nEpoch validation: f2 = %f, mae=%f \n" % (f2, mae))
+
+
+def cv_training(trainval_ids, n_folds=5, val_fold_indices=(), **kwargs):
+    """
+    :param trainval_ids:
+    :param n_folds:
+    :param val_fold_indices: (optional) a list of validation folds indices to run training on specific folds.
+    If not specified training is run on all folds.
+    :param kwargs:
+    :return:
+    """
+
+    val_fold_index = 0
+    assert isinstance(trainval_ids, list) or isinstance(trainval_ids, tuple), "trainval_ids should be a list or tuple"
+
+    kf = KFold(n_splits=n_folds)
+    trainval_ids = np.array(trainval_ids)
+    for train_index, test_index in kf.split(trainval_ids):
+        train_ids, val_ids = trainval_ids[train_index], trainval_ids[test_index]
+        if len(val_fold_indices) > 0:
+            if val_fold_index not in val_fold_indices:
+                val_fold_index += 1
+                continue
+        assert len(to_set(train_ids) & to_set(val_ids)) == 0, "Train and validation data ids have common ids"
+        val_fold_index += 1
+        print("\n\n ---- Validation fold index: ", val_fold_index, "/", n_folds)
+        training(train_ids, val_ids, **kwargs)
+
+
+# def _check_training_kwargs(**kwargs):
+#     # Check kwargs, required keys:
+#     # - network
+#     assert 'network' in kwargs, "CNN model is required in kwargs"
+
+def training(train_ids, val_ids, params, custom_objects):
+    """
+    :param train_ids: list or tuple of data identifiers for training dataset
+    :param val_ids: list or tuple of data identifiers for validation dataset
+    :param params: dictionary with following configuration blocks:
+        'data_provider':
+
+    :param custom_objects: dictionary of objects used in params
+    :return:
+    """
+    # _check_training_kwargs(**kwargs)
+
+    # Setup and compile CNN model
 
 
 def segmentation_train(model,
@@ -285,27 +191,15 @@ def segmentation_train(model,
 
         np.random.seed(seed)
         # New or old Keras API
-        if int(keras_version[0]) == 2:
-            print("- New Keras API found -")
-            history = model.fit_generator(generator=train_flow,
-                                          steps_per_epoch=(samples_per_epoch // batch_size),
-                                          epochs=nb_epochs,
-                                          validation_data=val_flow,
-                                          validation_steps=(nb_val_samples // batch_size),
-                                          callbacks=callbacks,
-                                          class_weight=class_weight,
-                                          verbose=verbose)
-        else:
-            history = model.fit_generator(generator=train_flow,
-                                          samples_per_epoch=samples_per_epoch,
-                                          nb_epoch=nb_epochs,
-                                          validation_data=val_flow,
-                                          nb_val_samples=nb_val_samples,
-                                          callbacks=callbacks,
-                                          class_weight=class_weight,
-                                          verbose=verbose)
+        history = model.fit_generator(generator=train_flow,
+                                      steps_per_epoch=(samples_per_epoch // batch_size),
+                                      epochs=nb_epochs,
+                                      validation_data=val_flow,
+                                      validation_steps=(nb_val_samples // batch_size),
+                                      callbacks=callbacks,
+                                      class_weight=class_weight,
+                                      verbose=verbose)
         return history
-
     except KeyboardInterrupt:
         pass
 

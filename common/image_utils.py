@@ -1,20 +1,11 @@
-import os
-import sys
+from __future__ import absolute_import
 
 import cv2
 from PIL import Image
 import numpy as np
 
-# Local repos:
-local_repos_path = os.path.abspath(os.path.dirname(__file__))
-
-gimg_path = os.path.join(local_repos_path, "TinyGeoImageUtils")
-if gimg_path not in sys.path:
-    sys.path.append(gimg_path)
-
-
 # Project
-from data_utils import get_filename
+from .data_utils import get_filename
 
 
 def get_image_data(image_id, image_type, **kwargs):
@@ -58,7 +49,7 @@ def _get_image_data_opencv(image_id, image_type, **kwargs):
     return img
 
 
-def _get_image_data_pil(image_id, image_type, return_exif_md=False, return_shape_only=False):
+def _get_image_data_pil(image_id, image_type, return_exif_md=False, return_shape_only=False, **kwargs):
     """
     Method to get image data as np.array specifying image id and type
     """

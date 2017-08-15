@@ -1,6 +1,6 @@
-[submodule "common/KerasContrib"]
-	path = common/KerasContrib
+[submodule "KerasContrib"]
+	path = KerasContrib
 	url = https://github.com/vfdev-5/keras-contrib
-[submodule "common/imgaug"]
-	path = common/imgaug
+[submodule "imgaug"]
+	path = imgaug
 	url = https://github.com/aleju/imgaug.git
