@@ -44,7 +44,7 @@ def _get_image_data_opencv(image_id, image_type, **kwargs):
     """
     fname = get_filename(image_id, image_type)
     img = cv2.imread(fname)
-    assert img is not None, "Failed to read image : %s, %s" % (image_id, image_type)
+    assert img is not None, "Failed to read image : %s, %s (%s)" % (image_id, image_type, fname)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
 

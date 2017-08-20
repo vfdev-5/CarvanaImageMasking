@@ -34,6 +34,18 @@ TRAIN_MASKS_CSV['id'] = TRAIN_MASKS_CSV['img'].apply(lambda x: x[:-7])
 
 assert os.path.isfile(METADATA_CSV_FILEPATH), "File %s is not found" % METADATA_CSV_FILEPATH
 METADATA_CSV = pd.read_csv(METADATA_CSV_FILEPATH)
+METADATA_CSV.loc[651, 'make'] = 'Chevrolet'
+METADATA_CSV.loc[1789, 'make'] = 'Toyota'
+METADATA_CSV.loc[2138, 'make'] = 'Volvo'
+METADATA_CSV.loc[2373, 'make'] = 'Hyundai'
+METADATA_CSV.loc[2400, 'make'] = 'Kia'
+METADATA_CSV.loc[2966, 'make'] = 'Nissan'
+METADATA_CSV.loc[4027, 'make'] = 'Hyundai'
+METADATA_CSV.loc[4270, 'make'] = 'Hyundai'
+METADATA_CSV.loc[4630, 'make'] = 'GMC'
+METADATA_CSV.loc[5222, 'make'] = 'GMC'
+METADATA_CSV.loc[5304, 'make'] = 'Toyota'
+
 
 train_files = glob(os.path.join(TRAIN_DATA, "*.jpg"))
 train_ids = [s[len(TRAIN_DATA)+1:-4] for s in train_files]
@@ -50,7 +62,32 @@ if len(test_ids) == 0:
 
 
 UNIQUE_CARS = sorted(METADATA_CSV['id'].unique())
-UNIQUE_TRAIN_CARS = sorted([_id for _id in UNIQUE_CARS if _id + '_01' in train_ids])
+UNIQUE_TRAIN_CARS = sorted(list(TRAIN_MASKS_CSV['id']))
+UNIQUE_CAR_MAKERS = sorted(METADATA_CSV['make'].unique())
+UNIQUE_TRAIN_CAR_MAKERS = sorted(METADATA_CSV[METADATA_CSV['id'].isin(UNIQUE_TRAIN_CARS)]['make'].unique())
+
+
+def get_trainval_ids_with_makers():
+    _metadata_csv = METADATA_CSV.copy()
+    _metadata_csv.index = METADATA_CSV['id']
+
+    def get_car_maker(data_id):
+        _data_id = data_id[0][:-3]
+        return _metadata_csv.loc[_data_id, 'make']
+
+    trainval_ids = [(data_id, "Train") for data_id in train_ids]
+    trainval_ids_makers = [get_car_maker(data_ids) for data_ids in trainval_ids]
+    return trainval_ids, trainval_ids_makers
+
+
+def get_trainval_data_ids(car_makers_list):
+    mask = METADATA_CSV['make'].isin(car_makers_list) & METADATA_CSV['id'].isin(TRAIN_MASKS_CSV['id'])
+    _ids = list(METADATA_CSV[mask]['id'])
+    data_ids = list([None]*(len(_ids)*16))
+    for i, _id in enumerate(_ids):
+        for j in range(1, 17):
+            data_ids[i*16 + j - 1] = (_id + "_{:02d}".format(j), "Train")
+    return data_ids
 
 
 def to_set(id_type_list):
